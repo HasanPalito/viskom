@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>28x28 Drawing Canvas</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+            background-color: white; /* Ensures erasing shows */
+        }
+    </style>
+</head>
+<body>
+    <h3>Draw on the 28x28 Canvas</h3>
+    
+    <label for="brushSize">Brush Size:</label>
+    <input type="range" id="brushSize" min="1" max="5" value="1">
+
+    <button id="eraserToggle">Eraser: OFF</button>
+    <button id="downloadBtn">process</button>
+
+    <canvas id="drawCanvas" width="28" height="28"></canvas>
+
+    <script>
+        let session; 
+        const canvas = document.getElementById("drawCanvas");
+        const ctx = canvas.getContext("2d");
+        const brushSizeInput = document.getElementById("brushSize");
+        const eraserToggle = document.getElementById("eraserToggle");
+        const downloadBtn = document.getElementById("downloadBtn");
+
+        async function loadModel() {
+            console.log("Loading ONNX model...");
+            session = await ort.InferenceSession.create("http://localhost:8000/model");
+            console.log("ONNX model loaded!");
+        }
+        function softmax(logits) {
+            let expValues = logits.map(x => Math.exp(x));
+            let sumExp = expValues.reduce((a, b) => a + b, 0);
+            return expValues.map(x => x / sumExp);
+        }
+
+        async function preprocessImage(imageElement) {
+            let tensor = tf.browser.fromPixels(imageElement, 1) // Convert image to grayscale
+                .resizeNearestNeighbor([28, 28])
+                .toFloat()
+                .div(tf.scalar(255)) // Normalize to [0,1]
+                .sub(tf.scalar(1)) // Invert colors
+                .mul(tf.scalar(-1)) // Make black -> white and white -> black
+                .reshape([1, 784]); // Flatten to match ONNX input
+
+            return new ort.Tensor("float32", tensor.dataSync(), [1, 784]);
+        }
+
+        let drawing = false;
+        let brushSize = parseInt(brushSizeInput.value, 10);
+        let erasing = false;
+
+        canvas.style.width = "280px";
+        canvas.style.height = "280px";
+        ctx.scale(1, 1); // Keep resolution 28x28
+        ctx.fillStyle = "white";
+        ctx.fillRect(0, 0, canvas.width, canvas.height); // Start with white background
+
+        brushSizeInput.addEventListener("input", () => {
+            brushSize = parseInt(brushSizeInput.value, 10);
+        });
+
+        eraserToggle.addEventListener("click", () => {
+            erasing = !erasing;
+            eraserToggle.textContent = erasing ? "Eraser: ON" : "Eraser: OFF";
+        });
+
+        canvas.addEventListener("mousedown", () => drawing = true);
+        canvas.addEventListener("mouseup", () => drawing = false);
+        canvas.addEventListener("mousemove", draw);
+
+        function draw(event) {
+            if (!drawing) return;
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.floor((event.clientX - rect.left) / 10);
+            const y = Math.floor((event.clientY - rect.top) / 10);
+
+            ctx.fillStyle = erasing ? "white" : "black";
+            ctx.fillRect(x, y, brushSize, brushSize);
+        }
+
+        downloadBtn.addEventListener("click", async() => {
+            const canvas = document.getElementById("drawCanvas");
+            const imageTensor = await preprocessImage(canvas);
+            console.log("Preprocessed Image Tensor:", imageTensor);
+
+            // Run ONNX model inference
+            const outputs = await session.run({ input: imageTensor });
+            console.log("Model Output:", outputs.output.data);
+            const probabilities = softmax(outputs.output.data);
+            console.log("probabilities:", probabilities);
+            const predictedClass = probabilities.indexOf(Math.max(...probabilities));
+            console.log("Predicted Class:", predictedClass);
+            
+        });
+
+        loadModel();
+    </script>
+</body>
+</html>

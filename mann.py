@@ -22,11 +22,12 @@ x_train, y_train = load_csv(csv_path)
 model = nn.Sequential(
     nn.Linear(784, 128), 
     nn.ReLU(),
-    nn.Linear(128, 10) 
+    nn.Linear(128, 10),
+    nn.Sigmoid()
 )
 
 
-criterion = nn.CrossEntropyLoss()
+criterion = nn.BCELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 def train(model, x_train, y_train, criterion, optimizer, epochs=1000):
@@ -41,3 +42,5 @@ def train(model, x_train, y_train, criterion, optimizer, epochs=1000):
 
 # Run training
 train(model, x_train, y_train, criterion, optimizer)
+
+torch.save(model, 'model_v2.pth')
